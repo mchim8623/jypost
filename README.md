@@ -1,5 +1,5 @@
 # 关于本程序
-集邮记，一个简洁优雅的 Emby 服务器监控平台。你厌倦了打开播放器再截图展示自己所集 Emby 服了吗？（~~~~反正我是厌倦了~~~~ :xhj017: ）不妨来试试这个新开发出来的程序，它可以让你和VPS监控一样监控emby服务器，通过网页即可展示你的集邮成果！无需打开播放器！ :xhj016: 
+集邮记，一个简洁优雅的 Emby 服务器监控平台。你厌倦了打开播放器再截图展示自己所集 Emby 服了吗？（反正我是厌倦了huh）不妨来试试这个新开发出来的程序，它可以让你和VPS监控一样监控emby服务器，通过网页即可展示你的集邮成果！无需打开播放器！ :xhj016: 
 # 环境要求  
 ![PHP](https://img.shields.io/badge/PHP-7.4+-blue)
 ![MySQL](https://img.shields.io/badge/MySQL-5.7+-orange)
@@ -34,4 +34,4 @@ https://status.huohuo.ggff.net/public.php
 - [ ] 添加多用户管理和Linux.do OAUTH
 # 鸣谢
 https://github.com/somebyteorg/medb_web
-以及其他在emos群里鼓励的各位！ :yct001: 
+以及其他在emos群里鼓励的各位！ 
