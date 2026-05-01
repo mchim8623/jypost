@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 集邮记 - Emby监控程序
+使用用户名密码获取 Token，UA: Hills/1.0.0
 """
 
 import os
@@ -10,7 +11,6 @@ import json
 import time
 import logging
 import argparse
-import platform
 import socket
 import requests
 from datetime import datetime
@@ -18,37 +18,40 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('monitor.log'),
+        logging.FileHandler('monitor.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
+USER_AGENT = 'Hills/1.0.0'
+
+
 @dataclass
 class EmbyServer:
-    """Emby服务器配置"""
     id: int
     name: str
     url: str
-    api_key: str
+    username: str
+    password: str
     check_interval: int = 60
+    _token: Optional[str] = None
+
 
 @dataclass
 class MonitorConfig:
-    """监控配置"""
     monitor_id: int
     api_url: str
     token: str
     servers: List[EmbyServer]
     config: Dict[str, Any]
 
+
 class EmbyMonitor:
-    """Emby监控器"""
     
     def __init__(self, config_path: str = "config.json"):
         self.config_path = config_path
@@ -58,7 +61,6 @@ class EmbyMonitor:
         self.ip = self._get_local_ip()
         
     def _get_local_ip(self) -> str:
-        """获取本机IP"""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(('8.8.8.8', 80))
@@ -69,15 +71,12 @@ class EmbyMonitor:
             return '127.0.0.1'
     
     def load_config(self) -> bool:
-        """加载本地配置"""
         if not os.path.exists(self.config_path):
             logger.error(f"配置文件不存在: {self.config_path}")
             return False
-            
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                
             servers = [EmbyServer(**s) for s in data.get('servers', [])]
             self.config = MonitorConfig(
                 monitor_id=data.get('monitor_id', 0),
@@ -92,110 +91,129 @@ class EmbyMonitor:
             return False
     
     def fetch_remote_config(self) -> bool:
-        """从服务端拉取配置"""
         if not self.config:
             return False
-            
         try:
             response = requests.get(
                 f"{self.config.api_url}?action=config",
-                headers={'X-Monitor-Token': self.config.token},
+                headers={'X-Monitor-Token': self.config.token, 'User-Agent': USER_AGENT},
                 timeout=30
             )
-            
             if response.status_code != 200:
                 logger.error(f"拉取配置失败: HTTP {response.status_code}")
                 return False
-                
             data = response.json()
             if not data.get('success'):
                 logger.error(f"拉取配置失败: {data.get('error')}")
                 return False
-                
-            # 更新配置
-            servers = [EmbyServer(**s) for s in data.get('servers', [])]
+            servers = []
+            for s in data.get('servers', []):
+                old_server = next((x for x in self.config.servers if x.id == s.get('id')), None)
+                server = EmbyServer(**s)
+                if old_server and old_server._token:
+                    server._token = old_server._token
+                servers.append(server)
             self.config.monitor_id = data.get('monitor_id', self.config.monitor_id)
             self.config.servers = servers
             self.config.config = data.get('config', {})
-            
-            # 保存到本地
             self.save_config()
-            
             logger.info(f"成功拉取配置，共 {len(servers)} 个服务器")
             return True
-            
         except Exception as e:
             logger.error(f"拉取配置异常: {e}")
             return False
     
     def save_config(self):
-        """保存配置到本地"""
         if not self.config:
             return
-            
+        servers_data = []
+        for s in self.config.servers:
+            s_dict = asdict(s)
+            if '_token' in s_dict:
+                del s_dict['_token']
+            servers_data.append(s_dict)
         data = {
             'monitor_id': self.config.monitor_id,
             'api_url': self.config.api_url,
             'token': self.config.token,
-            'servers': [asdict(s) for s in self.config.servers],
+            'servers': servers_data,
             'config': self.config.config
         }
-        
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     
+    def _get_access_token(self, server: EmbyServer) -> Optional[str]:
+        if server._token:
+            return server._token
+        try:
+            auth_url = f"{server.url.rstrip('/')}/Users/AuthenticateByName"
+            auth_header = 'Emby UserId="", Client="Hills", Device="Hills Monitor", DeviceId="HillsMonitor", Version="1.0.0"'
+            payload = {"Username": server.username, "Pw": server.password}
+            headers = {
+                'Content-Type': 'application/json',
+                'X-Emby-Authorization': auth_header,
+                'User-Agent': USER_AGENT
+            }
+            response = requests.post(auth_url, json=payload, headers=headers, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                token = data.get('AccessToken')
+                if token:
+                    server._token = token
+                    logger.info(f"服务器 [{server.name}] 获取 Token 成功")
+                    return token
+            else:
+                logger.error(f"服务器 [{server.name}] 获取 Token 失败: HTTP {response.status_code}")
+        except Exception as e:
+            logger.error(f"服务器 [{server.name}] 获取 Token 异常: {e}")
+        return None
+    
     def check_server(self, server: EmbyServer) -> Dict[str, Any]:
-        """检查单个Emby服务器"""
         result = {
             'server_id': server.id,
             'is_online': False,
             'response_time': None,
             'library_count': None,
             'library_details': None,
+            'item_counts': None,
             'error_message': None
         }
+        token = self._get_access_token(server)
+        if not token:
+            result['error_message'] = "获取访问令牌失败"
+            return result
         
         start_time = time.time()
-        
         try:
-            # 检查服务器状态
             system_url = f"{server.url.rstrip('/')}/System/Info"
-            headers = {'X-Emby-Token': server.api_key}
-            
-            response = requests.get(
-                system_url,
-                headers=headers,
-                timeout=30
-            )
-            
+            headers = {'X-Emby-Token': token, 'User-Agent': USER_AGENT}
+            response = requests.get(system_url, headers=headers, timeout=30)
             result['response_time'] = int((time.time() - start_time) * 1000)
             
             if response.status_code == 200:
                 result['is_online'] = True
-                data = response.json()
-                
-                # 获取媒体库信息
                 try:
-                    library_url = f"{server.url.rstrip('/')}/Library/VirtualFolders"
-                    lib_response = requests.get(library_url, headers=headers, timeout=30)
-                    
-                    if lib_response.status_code == 200:
-                        libraries = lib_response.json()
-                        result['library_count'] = len(libraries)
-                        result['library_details'] = json.dumps([
-                            {
-                                'name': lib.get('Name'),
-                                'type': lib.get('CollectionType'),
-                                'locations': lib.get('Locations', [])
-                            }
-                            for lib in libraries
-                        ])
+                    counts_url = f"{server.url.rstrip('/')}/Items/Counts"
+                    counts_response = requests.get(counts_url, headers=headers, timeout=30)
+                    if counts_response.status_code == 200:
+                        counts_data = counts_response.json()
+                        result['item_counts'] = json.dumps(counts_data)
+                        library_types = ['MovieCount', 'SeriesCount', 'EpisodeCount', 'ArtistCount', 'AlbumCount', 'SongCount', 'MusicVideoCount', 'BoxSetCount', 'BookCount']
+                        total_libraries = sum(1 for t in library_types if counts_data.get(t, 0) > 0)
+                        result['library_count'] = total_libraries
+                        details = []
+                        if counts_data.get('MovieCount', 0) > 0: details.append(f"电影:{counts_data['MovieCount']}")
+                        if counts_data.get('SeriesCount', 0) > 0: details.append(f"剧集:{counts_data['SeriesCount']}")
+                        if counts_data.get('EpisodeCount', 0) > 0: details.append(f"单集:{counts_data['EpisodeCount']}")
+                        if counts_data.get('SongCount', 0) > 0: details.append(f"歌曲:{counts_data['SongCount']}")
+                        result['library_details'] = ', '.join(details)
                 except Exception as e:
-                    logger.warning(f"获取媒体库信息失败: {e}")
-                    
+                    logger.warning(f"服务器 [{server.name}] 获取媒体计数失败: {e}")
+            elif response.status_code == 401:
+                result['error_message'] = "Token 失效"
+                server._token = None
             else:
                 result['error_message'] = f"HTTP {response.status_code}"
-                
         except requests.exceptions.Timeout:
             result['error_message'] = "连接超时"
             result['response_time'] = 30000
@@ -203,209 +221,114 @@ class EmbyMonitor:
             result['error_message'] = "连接失败"
         except Exception as e:
             result['error_message'] = str(e)
-            
         return result
     
     def report_result(self, result: Dict[str, Any]) -> bool:
-        """上报监控结果"""
         if not self.config:
             return False
-            
         try:
             response = requests.post(
                 f"{self.config.api_url}?action=report",
-                headers={
-                    'X-Monitor-Token': self.config.token,
-                    'Content-Type': 'application/json'
-                },
+                headers={'X-Monitor-Token': self.config.token, 'Content-Type': 'application/json', 'User-Agent': USER_AGENT},
                 json=result,
                 timeout=30
             )
-            
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('success', False)
-            else:
-                logger.error(f"上报失败: HTTP {response.status_code}")
-                return False
-                
+            return response.status_code == 200 and response.json().get('success', False)
         except Exception as e:
             logger.error(f"上报异常: {e}")
             return False
     
     def run_check(self):
-        """执行一轮检查"""
-        if not self.config:
-            logger.error("配置未加载")
+        if not self.config or not self.config.servers:
             return
-            
-        if not self.config.servers:
-            logger.warning("没有配置要监控的服务器")
-            return
-            
         logger.info(f"开始检查 {len(self.config.servers)} 个服务器")
-        
-        # 使用线程池并发检查
+        online_count = offline_count = 0
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {
-                executor.submit(self.check_server, server): server
-                for server in self.config.servers
-            }
-            
+            futures = {executor.submit(self.check_server, s): s for s in self.config.servers}
             for future in as_completed(futures):
                 server = futures[future]
                 try:
                     result = future.result()
-                    
-                    # 上报结果
+                    if result['is_online']: online_count += 1
+                    else: offline_count += 1
                     if self.report_result(result):
                         status = "在线" if result['is_online'] else "离线"
-                        lib_info = f", 媒体库: {result['library_count']}" if result['library_count'] else ""
-                        logger.info(
-                            f"服务器 [{server.name}] {status}, "
-                            f"响应: {result['response_time']}ms{lib_info}"
-                        )
-                    else:
-                        logger.error(f"上报结果失败: {server.name}")
-                        
+                        logger.info(f"服务器 [{server.name}] {status}, 响应: {result['response_time']}ms, 媒体库: {result['library_count']}个")
                 except Exception as e:
-                    logger.error(f"检查服务器 {server.name} 失败: {e}")
+                    logger.error(f"检查 {server.name} 失败: {e}")
+                    offline_count += 1
+        logger.info(f"检查完成: 在线 {online_count} 台, 离线 {offline_count} 台")
     
     def run(self):
-        """运行监控循环"""
         logger.info("=" * 50)
-        logger.info("集邮记 Emby监控程序启动")
-        logger.info(f"主机名: {self.hostname}")
-        logger.info(f"IP地址: {self.ip}")
+        logger.info("集邮记 Emby监控程序")
+        logger.info(f"主机名: {self.hostname}, IP: {self.ip}")
         logger.info("=" * 50)
-        
-        # 加载配置
         if not self.load_config():
-            logger.error("无法加载配置，请先运行 setup 命令")
+            logger.error("配置加载失败")
             return
-            
-        last_config_fetch = 0
-        config_fetch_interval = 300  # 5分钟拉取一次配置
-        
+        last_fetch = 0
         while self.running:
             try:
-                current_time = time.time()
-                
-                # 定期拉取远程配置
-                if current_time - last_config_fetch > config_fetch_interval:
-                    logger.info("拉取远程配置...")
+                if time.time() - last_fetch > 300:
                     if self.fetch_remote_config():
-                        last_config_fetch = current_time
-                
-                # 执行检查
+                        last_fetch = time.time()
                 self.run_check()
-                
-                # 获取检查间隔
                 interval = int(self.config.config.get('default_check_interval', 60))
-                
-                logger.info(f"等待 {interval} 秒后进行下一次检查...")
-                
-                # 分段等待，便于响应中断
                 for _ in range(interval):
-                    if not self.running:
-                        break
+                    if not self.running: break
                     time.sleep(1)
-                    
             except KeyboardInterrupt:
-                logger.info("收到中断信号，正在退出...")
                 break
             except Exception as e:
-                logger.error(f"监控循环异常: {e}")
+                logger.error(f"循环异常: {e}")
                 time.sleep(60)
-                
         logger.info("监控程序已停止")
 
+
 def setup_wizard():
-    """配置向导"""
     print("=" * 50)
     print("集邮记 Emby监控程序 - 配置向导")
     print("=" * 50)
-    
     config = {}
-    
-    # API地址
-    config['api_url'] = input("请输入管理面板API地址 (例如: http://your-domain.com/api.php): ").strip()
-    if not config['api_url']:
-        print("API地址不能为空")
-        return
-        
-    # 认证令牌
-    config['token'] = input("请输入监控机认证令牌: ").strip()
-    if not config['token']:
-        print("认证令牌不能为空")
-        return
-        
-    # 测试连接
-    print("\n正在测试连接...")
+    config['api_url'] = input("管理面板API地址: ").strip()
+    config['token'] = input("监控机认证令牌: ").strip()
+    print("\n测试连接...")
     try:
-        response = requests.get(
-            f"{config['api_url']}?action=config",
-            headers={'X-Monitor-Token': config['token']},
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('success'):
-                print("✓ 连接成功!")
-                config['monitor_id'] = data.get('monitor_id', 0)
-                config['servers'] = data.get('servers', [])
-                config['config'] = data.get('config', {})
-                
-                print(f"  监控机ID: {config['monitor_id']}")
-                print(f"  服务器数量: {len(config['servers'])}")
-            else:
-                print(f"✗ 认证失败: {data.get('error')}")
-                return
+        r = requests.get(f"{config['api_url']}?action=config", headers={'X-Monitor-Token': config['token'], 'User-Agent': USER_AGENT}, timeout=30)
+        if r.status_code == 200 and r.json().get('success'):
+            data = r.json()
+            config['monitor_id'] = data.get('monitor_id', 0)
+            config['servers'] = data.get('servers', [])
+            config['config'] = data.get('config', {})
+            print(f"✓ 成功! 监控机ID: {config['monitor_id']}, 服务器: {len(config['servers'])} 个")
         else:
-            print(f"✗ 连接失败: HTTP {response.status_code}")
+            print(f"✗ 失败: {r.json().get('error', 'HTTP ' + str(r.status_code))}")
             return
-            
     except Exception as e:
         print(f"✗ 连接异常: {e}")
         return
-        
-    # 保存配置
     with open('config.json', 'w', encoding='utf-8') as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
-        
-    print("\n配置已保存到 config.json")
-    print("\n运行 'python monitor.py run' 启动监控程序")
+    print("配置已保存到 config.json")
+
 
 def main():
     parser = argparse.ArgumentParser(description='集邮记 Emby监控程序')
-    parser.add_argument('command', choices=['setup', 'run', 'check', 'status'],
-                        help='命令: setup=配置向导, run=运行监控, check=执行一次检查, status=查看状态')
-    parser.add_argument('-c', '--config', default='config.json',
-                        help='配置文件路径 (默认: config.json)')
-    
+    parser.add_argument('command', choices=['setup', 'run', 'check', 'status'])
+    parser.add_argument('-c', '--config', default='config.json')
     args = parser.parse_args()
-    
     monitor = EmbyMonitor(args.config)
-    
-    if args.command == 'setup':
-        setup_wizard()
-        
-    elif args.command == 'run':
-        monitor.run()
-        
+    if args.command == 'setup': setup_wizard()
+    elif args.command == 'run': monitor.run()
     elif args.command == 'check':
-        if monitor.load_config():
-            monitor.run_check()
-            
+        if monitor.load_config(): monitor.run_check()
     elif args.command == 'status':
         if monitor.load_config():
-            print(f"监控机ID: {monitor.config.monitor_id}")
-            print(f"API地址: {monitor.config.api_url}")
-            print(f"服务器数量: {len(monitor.config.servers)}")
-            print("\n监控的服务器:")
+            print(f"监控机ID: {monitor.config.monitor_id}, 服务器: {len(monitor.config.servers)} 个")
             for s in monitor.config.servers:
-                print(f"  - {s.name}: {s.url}")
+                print(f"  {s.name}: {s.url}")
+
 
 if __name__ == '__main__':
     main()
