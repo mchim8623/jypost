@@ -27,7 +27,7 @@ function sendWebhookAlert($server_id, $type, $message) {
     $server_name = $stmt->fetchColumn();
     $payload = ['title' => '集邮记监控告警', 'content' => "服务器: {$server_name}\n类型: {$type}\n信息: {$message}\n时间: " . date('Y-m-d H:i:s')];
     $ch = curl_init($webhook);
-    curl_setopt_array($ch, [CURLOPT_POST => 1, CURLOPT_POSTFIELDS => json_encode($payload), CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'User-Agent: Hills/1.0.0'], CURLOPT_TIMEOUT => 5, CURLOPT_RETURNTRANSFER => true]);
+    curl_setopt_array($ch, [CURLOPT_POST => 1, CURLOPT_POSTFIELDS = json_encode($payload), CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'User-Agent: Hills/1.0.0'], CURLOPT_TIMEOUT => 5, CURLOPT_RETURNTRANSFER => true]);
     curl_exec($ch); curl_close($ch);
 }
 
@@ -36,12 +36,15 @@ switch ($action) {
         $monitor = authenticateMonitor();
         $stmt = $db->prepare("UPDATE monitors SET last_heartbeat = NOW(), ip = ? WHERE id = ?");
         $stmt->execute([$_SERVER['REMOTE_ADDR'], $monitor['id']]);
-        $servers = $db->query("SELECT id, name, url, username, password, check_interval, use_custom_interval FROM emby_servers WHERE status = 1")->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($servers as &$s) { $s['password'] = decryptPassword($s['password']); }
+        
+        // 安全改造：重构查询逻辑。不查询 username 字段，同时将原密码字段（已改为存储 Emby token）映射为 token 下发给监控端
+        $servers = $db->query("SELECT id, name, url, password as token, check_interval, use_custom_interval FROM emby_servers WHERE status = 1")->fetchAll(PDO::FETCH_ASSOC);
+        
         $config = []; $r = $db->query("SELECT config_key, config_value FROM system_config");
         while ($row = $r->fetch(PDO::FETCH_ASSOC)) $config[$row['config_key']] = $row['config_value'];
         echo json_encode(['success' => true, 'monitor_id' => $monitor['id'], 'servers' => $servers, 'config' => $config]);
         break;
+        
     case 'report':
         if ($method !== 'POST') { http_response_code(405); die(json_encode(['error' => 'Method not allowed'])); }
         $monitor = authenticateMonitor();

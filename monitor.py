@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""集邮记 - Emby监控程序"""
+"""集邮记 - Emby监控程序(安全重构同步版)"""
 import os, sys, json, time, logging, argparse, socket
 import requests
 from typing import Dict, List, Optional, Any
@@ -12,8 +12,8 @@ USER_AGENT = 'Hills/1.0.0'
 
 @dataclass
 class EmbyServer:
-    id: int; name: str; url: str; username: str; password: str; check_interval: int = 60; use_custom_interval: int = 0
-    _token: Optional[str] = field(default=None, repr=False); _last_check_time: float = field(default=0.0, repr=False)
+    id: int; name: str; url: str; token: str; check_interval: int = 60; use_custom_interval: int = 0
+    _last_check_time: float = field(default=0.0, repr=False)
 
 @dataclass
 class MonitorConfig:
@@ -47,7 +47,7 @@ class EmbyMonitor:
             for s in data.get('servers', []):
                 old = next((x for x in self.config.servers if x.id == s.get('id')), None)
                 server = EmbyServer(**{k: v for k, v in s.items() if not k.startswith('_')})
-                if old: server._token = old._token; server._last_check_time = old._last_check_time
+                if old: server._last_check_time = old._last_check_time
                 servers.append(server)
             self.config.servers = servers; self.config.config = data.get('config', {})
             self.save_config(); logger.info(f"拉取配置成功，{len(servers)}个服务器"); return True
@@ -59,25 +59,13 @@ class EmbyMonitor:
         data = {'monitor_id': self.config.monitor_id, 'api_url': self.config.api_url, 'token': self.config.token, 'servers': servers_data, 'config': self.config.config}
         with open(self.config_path, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=2)
 
-    def _get_access_token(self, server: EmbyServer) -> Optional[str]:
-        if server._token: return server._token
-        try:
-            auth_header = 'Emby UserId="", Client="Hills", Device="Hills Monitor", DeviceId="HillsMonitor", Version="1.0.0"'
-            r = requests.post(f"{server.url.rstrip('/')}/Users/AuthenticateByName", json={"Username": server.username.strip(), "Pw": server.password.strip()}, headers={'Content-Type': 'application/json', 'X-Emby-Authorization': auth_header, 'User-Agent': USER_AGENT}, timeout=30)
-            if r.status_code == 200:
-                token = r.json().get('AccessToken')
-                if token: server._token = token; logger.info(f"服务器 [{server.name}] Token获取成功"); return token
-            logger.error(f"服务器 [{server.name}] Token获取失败: HTTP {r.status_code}")
-        except Exception as e: logger.error(f"服务器 [{server.name}] Token异常: {e}")
-        return None
-
     def check_server(self, server: EmbyServer) -> Dict[str, Any]:
         result = {'server_id': server.id, 'is_online': False, 'response_time': None, 'library_count': None, 'library_details': None, 'item_counts': None, 'error_message': None}
-        token = self._get_access_token(server)
-        if not token: result['error_message'] = "获取Token失败"; return result
+        if not server.token: result['error_message'] = "主站未下发有效 Token"; return result
         start = time.time()
         try:
-            headers = {'X-Emby-Token': token, 'User-Agent': USER_AGENT}
+            # 核心变更：不再调用密码登录接口，直接使用主站下发的官方通信令牌建立请求
+            headers = {'X-Emby-Token': server.token, 'User-Agent': USER_AGENT}
             r = requests.get(f"{server.url.rstrip('/')}/System/Info", headers=headers, timeout=30)
             result['response_time'] = int((time.time() - start) * 1000)
             if r.status_code == 200:
@@ -94,7 +82,7 @@ class EmbyMonitor:
                         if counts.get('EpisodeCount',0): details.append(f"单集:{counts['EpisodeCount']}")
                         result['library_details'] = ', '.join(details)
                 except Exception as e: logger.warning(f"获取计数失败: {e}")
-            elif r.status_code == 401: result['error_message'] = "Token失效"; server._token = None
+            elif r.status_code == 401: result['error_message'] = "Token失效"
             else: result['error_message'] = f"HTTP {r.status_code}"
         except requests.exceptions.Timeout: result['error_message'] = "超时"; result['response_time'] = 30000
         except requests.exceptions.ConnectionError: result['error_message'] = "连接失败"
@@ -178,6 +166,6 @@ def main():
             gi = int(m.config.config.get('default_check_interval', 60))
             for s in m.config.servers:
                 it = s.check_interval if s.use_custom_interval else gi
-                print(f"  {s.name}: {s.url} (间隔:{it}s, {'独立' if s.use_custom_interval else '全局'})")
+                print(f"  {s.name}: {s.url} (间隔:{it}s)")
 
 if __name__ == '__main__': main()

@@ -4,9 +4,24 @@ requireLogin();
 $db = getDB();
 $message = $error = '';
 $site_name = getConfig('site_name') ?: '集邮记';
+
+// 越权操作防御：强制校验会话用户ID是否存在
+if (!isset($_SESSION['user_id']) || intval($_SESSION['user_id']) <= 0) {
+    die('用户会话校验不通过，请重新登录。');
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    if ($action === 'save_config') { foreach ($_POST['config'] ?? [] as $k => $v) { $db->prepare("UPDATE system_config SET config_value=? WHERE config_key=?")->execute([$v, $k]); } $message = '配置保存成功'; }
+    if ($action === 'save_config') { 
+        // 核心加固：定义合规白名单字段，拒绝接收黑客伪造提交的其它表单 Key 
+        $allowed_keys = ['site_name', 'site_url', 'default_check_interval', 'data_retention_days', 'alert_webhook'];
+        foreach ($_POST['config'] ?? [] as $k => $v) { 
+            if (in_array($k, $allowed_keys, true)) {
+                $db->prepare("UPDATE system_config SET config_value=? WHERE config_key=?")->execute([$v, $k]); 
+            }
+        } 
+        $message = '配置保存成功'; 
+    }
     elseif ($action === 'change_password') { $old = $_POST['old_password'] ?? ''; $new = $_POST['new_password'] ?? ''; $confirm = $_POST['confirm_password'] ?? ''; if (empty($old) || empty($new) || empty($confirm)) $error = '请填写所有密码字段'; elseif ($new !== $confirm) $error = '两次密码不一致'; elseif (strlen($new) < 6) $error = '新密码至少6位'; else { $stmt = $db->prepare("SELECT password FROM users WHERE id=?"); $stmt->execute([$_SESSION['user_id']]); $user = $stmt->fetch(); if (password_verify($old, $user['password'])) { $db->prepare("UPDATE users SET password=? WHERE id=?")->execute([password_hash($new, PASSWORD_DEFAULT), $_SESSION['user_id']]); $message = '密码修改成功'; } else $error = '原密码错误'; } }
     elseif ($action === 'clean_data') { $days = intval($_POST['days'] ?? 30); $stmt = $db->prepare("DELETE FROM monitor_data WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)"); $stmt->execute([$days]); $message = "已清理 {$stmt->rowCount()} 条数据"; }
 }
@@ -16,8 +31,7 @@ $stats = ['total_data' => $db->query("SELECT COUNT(*) FROM monitor_data")->fetch
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>系统设置 - <?= htmlspecialchars($site_name) ?> 管理面板</title>
+    <meta charset="UTF-8"><title>系统设置 - <?= htmlspecialchars($site_name) ?> 管理面板</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css">
     <style>.sidebar{min-height:100vh;background:linear-gradient(135deg,#667eea,#764ba2)}.sidebar .nav-link{color:rgba(255,255,255,.8);padding:12px 20px;border-radius:8px;margin:4px 0}.sidebar .nav-link:hover,.sidebar .nav-link.active{color:#fff;background:rgba(255,255,255,.2)}</style>
@@ -38,27 +52,25 @@ $stats = ['total_data' => $db->query("SELECT COUNT(*) FROM monitor_data")->fetch
     </div></nav>
     <main class="col-md-10 ms-sm-auto px-md-4 py-4">
         <h2 class="mb-4">系统设置</h2>
-        <?php if($message): ?><div class="alert alert-success alert-dismissible"><?= $message ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div><?php endif; ?>
-        <?php if($error): ?><div class="alert alert-danger alert-dismissible"><?= $error ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div><?php endif; ?>
+        <?php if($message): ?><div class="alert alert-success alert-dismissible"><?= htmlspecialchars($message) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div><?php endif; ?>
+        <?php if($error): ?><div class="alert alert-danger alert-dismissible"><?= htmlspecialchars($error) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div><?php endif; ?>
         <div class="row">
             <div class="col-md-8">
                 <div class="card mb-4"><div class="card-header"><h5 class="mb-0">基本设置</h5></div><div class="card-body"><form method="post"><input type="hidden" name="action" value="save_config">
                     <div class="mb-3"><label class="form-label">站点名称</label><input type="text" class="form-control" name="config[site_name]" value="<?= htmlspecialchars($configs['site_name']['config_value']??'集邮记') ?>"></div>
                     <div class="mb-3"><label class="form-label">站点地址</label><input type="url" class="form-control" name="config[site_url]" value="<?= htmlspecialchars($configs['site_url']['config_value']??'') ?>"></div>
-                    <div class="mb-3"><label class="form-label">默认检查间隔(秒)</label><input type="number" class="form-control" name="config[default_check_interval]" value="<?= $configs['default_check_interval']['config_value']??'60' ?>" min="10" max="3600"><small class="text-muted">未开启独立间隔的服务器使用此设置</small></div>
-                    <div class="mb-3"><label class="form-label">数据保留天数</label><input type="number" class="form-control" name="config[data_retention_days]" value="<?= $configs['data_retention_days']['config_value']??'30' ?>" min="1" max="365"></div>
-                    <div class="mb-3"><label class="form-label">告警Webhook</label><input type="url" class="form-control" name="config[alert_webhook]" value="<?= htmlspecialchars($configs['alert_webhook']['config_value']??'') ?>" placeholder="企业微信/钉钉Webhook"></div>
+                    <div class="mb-3"><label class="form-label">默认检查间隔(秒)</label><input type="number" class="form-control" name="config[default_check_interval]" value="<?= htmlspecialchars($configs['default_check_interval']['config_value']??'60') ?>" min="10" max="3600"></div>
+                    <div class="mb-3"><label class="form-label">数据保留天数</label><input type="number" class="form-control" name="config[data_retention_days]" value="<?= htmlspecialchars($configs['data_retention_days']['config_value']??'30') ?>" min="1" max="365"></div>
+                    <div class="mb-3"><label class="form-label">告警Webhook</label><input type="url" class="form-control" name="config[alert_webhook]" value="<?= htmlspecialchars($configs['alert_webhook']['config_value']??'') ?>"></div>
                     <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> 保存</button>
                 </form></div></div>
-                <div class="card mb-4"><div class="card-header"><h5 class="mb-0">数据清理</h5></div><div class="card-body"><div class="alert alert-warning">当前 <strong><?= number_format($stats['total_data']) ?></strong> 条记录，最早: <?= $stats['oldest']??'无' ?></div><form method="post" onsubmit="return confirm('确定清理？')"><input type="hidden" name="action" value="clean_data"><div class="mb-3"><label class="form-label">清理多少天前</label><input type="number" class="form-control" name="days" value="30" min="7" max="365"></div><button type="submit" class="btn btn-danger"><i class="bi bi-trash"></i> 清理</button></form></div></div>
+                <div class="card mb-4"><div class="card-header"><h5 class="mb-0">数据清理</h5></div><div class="card-body"><div class="alert alert-warning">当前 <strong><?= number_format($stats['total_data']) ?></strong> 条记录</div><form method="post" onsubmit="return confirm('确定清理？')"><input type="hidden" name="action" value="clean_data"><div class="mb-3"><label class="form-label">清理多少天前</label><input type="number" class="form-control" name="days" value="30" min="7" max="365"></div><button type="submit" class="btn btn-danger"><i class="bi bi-trash"></i> 清理</button></form></div></div>
             </div>
             <div class="col-md-4">
                 <div class="card mb-4"><div class="card-header"><h5 class="mb-0">修改密码</h5></div><div class="card-body"><form method="post"><input type="hidden" name="action" value="change_password"><div class="mb-3"><label class="form-label">原密码</label><input type="password" class="form-control" name="old_password" required></div><div class="mb-3"><label class="form-label">新密码</label><input type="password" class="form-control" name="new_password" required></div><div class="mb-3"><label class="form-label">确认新密码</label><input type="password" class="form-control" name="confirm_password" required></div><button type="submit" class="btn btn-warning w-100"><i class="bi bi-key"></i> 修改密码</button></form></div></div>
-                <div class="card"><div class="card-header"><h5 class="mb-0">系统信息</h5></div><div class="card-body"><table class="table table-sm"><tr><td>PHP</td><td><?= phpversion() ?></td></tr><tr><td>数据库</td><td>MySQL</td></tr><tr><td>记录数</td><td><?= number_format($stats['total_data']) ?></td></tr><tr><td>告警数</td><td><?= number_format($stats['alerts']) ?></td></tr><tr><td>用户</td><td><?= htmlspecialchars($_SESSION['username']) ?></td></tr></table></div></div>
             </div>
         </div>
     </main>
 </div></div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

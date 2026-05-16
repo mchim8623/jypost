@@ -1,11 +1,15 @@
 <?php
 // install.php - 自动安装程序
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 define('INSTALL_LOCK', __DIR__ . '/install.lock');
 
+// 致命漏洞防御：只要 install.lock 存在，立即完全阻断所有请求，不执行任何后续代码
 if (file_exists(INSTALL_LOCK)) {
-    die('系统已安装，如需重新安装请删除 install.lock 文件');
+    http_response_code(403);
+    die('系统已安装。如需重新安装，请手动删除服务器上的 install.lock 文件。');
 }
 
 $step = $_GET['step'] ?? 1;
@@ -26,7 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $dsn = "mysql:host={$host};port={$port};charset=utf8mb4";
             $pdo = new PDO($dsn, $user, $pass);
             $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-            $stmt = $pdo->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '$name'");
+            // 防御潜在的数据库名称带来的注入，对其进行安全过滤
+            $name_clean = preg_replace('/[^a-zA-Z0-9_\-]/', '', $name);
+            $stmt = $pdo->query("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '$name_clean'");
             $exists = $stmt->fetchColumn();
             echo json_encode(['success' => true, 'db_exists' => !empty($exists), 'message' => '数据库连接成功']);
         } catch (PDOException $e) {
@@ -53,8 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $dsn = "mysql:host={$host};port={$port};charset=utf8mb4";
                 $pdo = new PDO($dsn, $user, $pass);
                 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                $pdo->exec("CREATE DATABASE IF NOT EXISTS `$name` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                $pdo->exec("USE `$name`");
+                
+                $name_clean = preg_replace('/[^a-zA-Z0-9_\-]/', '', $name);
+                $pdo->exec("CREATE DATABASE IF NOT EXISTS `$name_clean` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+                $pdo->exec("USE `$name_clean`");
                 
                 $sql = getDatabaseSchema();
                 $statements = parseSQL($sql);
@@ -71,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("UPDATE system_config SET config_value = ? WHERE config_key = 'site_name'");
                 $stmt->execute([$site_name]);
                 
-                $configContent = getConfigTemplate($host, $port, $name, $user, $pass, $site_url);
+                $configContent = getConfigTemplate($host, $port, $name_clean, $user, $pass, $site_url, $site_name);
                 file_put_contents(__DIR__ . '/config.php', $configContent);
                 file_put_contents(INSTALL_LOCK, date('Y-m-d H:i:s'));
                 
@@ -115,7 +123,7 @@ CREATE TABLE IF NOT EXISTS `emby_servers` (
   `name` varchar(100) NOT NULL,
   `url` varchar(255) NOT NULL,
   `username` varchar(100) NOT NULL,
-  `password` varchar(255) NOT NULL,
+  `password` text NOT NULL, -- 字段属性变更为存储官方生成的 AccessToken
   `icon_url` varchar(500) DEFAULT NULL,
   `is_public` tinyint(1) DEFAULT '0',
   `check_interval` int(11) DEFAULT '60',
@@ -191,9 +199,18 @@ function parseSQL($sql) {
     return $statements;
 }
 
-function getConfigTemplate($host, $port, $name, $user, $pass, $site_url) {
+function getConfigTemplate($host, $port, $name, $user, $pass, $site_url, $site_name) {
     $secret_key = bin2hex(random_bytes(32));
-    $date = date('Y-m-d H:i:s');
+    
+    // 致命木马漏洞防御：将所有写入配置文件的用户变量进行严苛的单引号与反斜杠转义
+    $host = addcslashes($host, "'\\");
+    $port = addcslashes($port, "'\\");
+    $name = addcslashes($name, "'\\");
+    $user = addcslashes($user, "'\\");
+    $pass = addcslashes($pass, "'\\");
+    $site_url = addcslashes($site_url, "'\\");
+    $site_name = addcslashes($site_name, "'\\");
+
     return <<<PHP
 <?php
 define('DB_HOST', '{$host}');
@@ -202,10 +219,13 @@ define('DB_NAME', '{$name}');
 define('DB_USER', '{$user}');
 define('DB_PASS', '{$pass}');
 define('SITE_URL', '{$site_url}');
-define('SITE_NAME', '集邮记');
+define('SITE_NAME', '{$site_name}');
 define('SECRET_KEY', '{$secret_key}');
 
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.cookie_httponly', 1);
+    session_start();
+}
 
 function getDB() {
     static \$db = null;
@@ -217,14 +237,14 @@ function getDB() {
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
             ]);
         } catch (PDOException \$e) {
-            die("数据库连接失败: " . \$e->getMessage());
+            die("数据库连接失败。");
         }
     }
     return \$db;
 }
 
 function isLoggedIn() {
-    return isset(\$_SESSION['logged_in']) && \$_SESSION['logged_in'] === true;
+    return isset(\$_SESSION['logged_in']) && \$_SESSION['logged_in'] === true && isset(\$_SESSION['user_id']);
 }
 
 function requireLogin() {
@@ -276,42 +296,16 @@ function getLatencyText(\$ms) {
     if (\$ms < 1000) return '较慢';
     return '很慢';
 }
-
-function encryptPassword(\$plaintext) {
-    \$key = substr(hash('sha256', SECRET_KEY, true), 0, 32);
-    \$iv = openssl_random_pseudo_bytes(16);
-    \$ciphertext = openssl_encrypt(\$plaintext, 'AES-256-CBC', \$key, OPENSSL_RAW_DATA, \$iv);
-    return base64_encode(\$iv . \$ciphertext);
-}
-
-function decryptPassword(\$ciphertext) {
-    \$key = substr(hash('sha256', SECRET_KEY, true), 0, 32);
-    \$data = base64_decode(\$ciphertext);
-    \$iv = substr(\$data, 0, 16);
-    \$ciphertext = substr(\$data, 16);
-    return openssl_decrypt(\$ciphertext, 'AES-256-CBC', \$key, OPENSSL_RAW_DATA, \$iv);
-}
 PHP;
 }
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>集邮记 - 安装向导</title>
+    <meta charset="UTF-8"><title>集邮记 - 安装向导</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css">
-    <style>
-        body{background:linear-gradient(135deg,#667eea,#764ba2);min-height:100vh;display:flex;align-items:center;padding:20px 0}
-        .install-card{background:#fff;border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden}
-        .install-header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:30px;text-align:center}
-        .install-body{padding:30px}
-        .step-indicator{display:flex;justify-content:center;margin-bottom:30px}
-        .step{width:40px;height:40px;border-radius:50%;background:#e9ecef;color:#6c757d;display:flex;align-items:center;justify-content:center;font-weight:700;margin:0 10px}
-        .step.active{background:#667eea;color:#fff}.step.completed{background:#10b981;color:#fff}
-        .step-line{width:60px;height:2px;background:#e9ecef;align-self:center}
-    </style>
+    <style>body{background:linear-gradient(135deg,#667eea,#764ba2);min-height:100vh;display:flex;align-items:center;padding:20px 0}.install-card{background:#fff;border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden}.install-header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:30px;text-align:center}.install-body{padding:30px}.step-indicator{display:flex;justify-content:center;margin-bottom:30px}.step{width:40px;height:40px;border-radius:50%;background:#e9ecef;color:#6c757d;display:flex;align-items:center;justify-content:center;font-weight:700;margin:0 10px}.step.active{background:#667eea;color:#fff}.step.completed{background:#10b981;color:#fff}.step-line{width:60px;height:2px;background:#e9ecef;align-self:center}</style>
 </head>
 <body>
 <div class="container"><div class="row justify-content-center"><div class="col-lg-8"><div class="install-card">
@@ -321,11 +315,9 @@ PHP;
             <div class="step <?= $step>=1?'active':'' ?> <?= $step>1?'completed':'' ?>"><?= $step>1?'<i class="bi bi-check"></i>':'1' ?></div>
             <div class="step-line"></div>
             <div class="step <?= $step>=2?'active':'' ?> <?= $step>2?'completed':'' ?>"><?= $step>2?'<i class="bi bi-check"></i>':'2' ?></div>
-            <div class="step-line"></div>
-            <div class="step <?= $step>=3?'active':'' ?> <?= $step>3?'completed':'' ?>"><?= $step>3?'<i class="bi bi-check"></i>':'3' ?></div>
         </div>
-        <?php if($error): ?><div class="alert alert-danger"><?= $error ?></div><?php endif; ?>
-        <?php if($success): ?><div class="alert alert-success"><?= $success ?><br>正在跳转到登录页面...</div><?php endif; ?>
+        <?php if($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+        <?php if($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?><br>正在跳转到登录页面...</div><?php endif; ?>
         <?php if(!$success): ?>
         <?php if($step==1): ?>
         <h4 class="mb-4">环境检查</h4>
@@ -350,7 +342,7 @@ PHP;
         </tbody></table>
         <div class="d-grid"><?php if($all_ok): ?><a href="?step=2" class="btn btn-primary btn-lg">下一步 <i class="bi bi-arrow-right"></i></a><?php else: ?><div class="alert alert-warning">请满足所有环境要求后再继续</div><?php endif; ?></div>
         <?php elseif($step==2): ?>
-        <h4 class="mb-4">数据库配置</h4>
+        <h4 class="mb-4">系统安装配置</h4>
         <form id="dbForm">
             <div class="row mb-3"><div class="col-md-8"><label class="form-label">数据库主机</label><input type="text" class="form-control" name="db_host" value="localhost" required></div><div class="col-md-4"><label class="form-label">端口</label><input type="text" class="form-control" name="db_port" value="3306" required></div></div>
             <div class="mb-3"><label class="form-label">数据库名称</label><input type="text" class="form-control" name="db_name" value="jypost" required></div>
@@ -389,6 +381,5 @@ PHP;
         <?php endif; ?><?php endif; ?>
     </div>
 </div></div></div></div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

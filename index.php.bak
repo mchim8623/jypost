@@ -4,20 +4,9 @@ requireLogin();
 $db = getDB();
 $site_name = getConfig('site_name') ?: '集邮记';
 
-// 越权操作二次防御
-if (!isset($_SESSION['user_id']) || intval($_SESSION['user_id']) <= 0) {
-    die('用户会话校验不通过，请重新登录。');
-}
-
-// 优化后的统计逻辑：修复了 online_servers 慢查询导致的潜在服务器卡死(DoS)隐患
 $stats = [
     'total_servers' => $db->query("SELECT COUNT(*) FROM emby_servers")->fetchColumn(),
-    // 性能优化点：直接利用已经建立的复合索引 (server_id, created_at)，去掉Filesort文件排序，大幅减轻服务器CPU负载
-    'online_servers' => $db->query("
-        SELECT COUNT(DISTINCT server_id) 
-        FROM monitor_data 
-        WHERE created_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE) AND is_online = 1
-    ")->fetchColumn(),
+    'online_servers' => $db->query("SELECT COUNT(DISTINCT server_id) FROM (SELECT server_id, is_online FROM monitor_data WHERE created_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE) ORDER BY created_at DESC) t WHERE is_online=1")->fetchColumn(),
     'total_monitors' => $db->query("SELECT COUNT(*) FROM monitors")->fetchColumn(),
     'online_monitors' => $db->query("SELECT COUNT(*) FROM monitors WHERE status=1 AND last_heartbeat > DATE_SUB(NOW(), INTERVAL 10 MINUTE)")->fetchColumn(),
     'today_alerts' => $db->query("SELECT COUNT(*) FROM alert_logs WHERE DATE(created_at) = CURDATE()")->fetchColumn(),
@@ -42,7 +31,7 @@ $recentData = $db->query("
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($site_name, ENT_QUOTES, 'UTF-8') ?> - 管理面板</title>
+    <title><?= htmlspecialchars($site_name) ?> - 管理面板</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css">
     <style>
@@ -57,7 +46,7 @@ $recentData = $db->query("
 <body>
 <div class="container-fluid"><div class="row">
     <nav class="col-md-2 d-md-block sidebar"><div class="position-sticky pt-4">
-        <h4 class="text-white text-center mb-4"><i class="bi bi-stamp"></i> <?= htmlspecialchars($site_name, ENT_QUOTES, 'UTF-8') ?></h4>
+        <h4 class="text-white text-center mb-4"><i class="bi bi-stamp"></i> <?= htmlspecialchars($site_name) ?></h4>
         <div class="nav flex-column">
             <a class="nav-link active" href="index.php"><i class="bi bi-speedometer2"></i> 仪表盘</a>
             <a class="nav-link" href="servers.php"><i class="bi bi-server"></i> 服务器管理</a>
@@ -71,33 +60,27 @@ $recentData = $db->query("
     <main class="col-md-10 ms-sm-auto px-md-4 py-4">
         <div class="d-flex justify-content-between mb-4"><h2>管理面板</h2><span class="text-muted"><?= date('Y-m-d H:i:s') ?></span></div>
         <div class="row mb-4">
-            <div class="col-md-3"><div class="card stat-card bg-primary text-white"><div class="card-body"><h5>Emby服务器</h5><h3><?= intval($stats['total_servers']) ?></h3><small>在线: <?= intval($stats['online_servers']) ?></small></div></div></div>
-            <div class="col-md-3"><div class="card stat-card bg-success text-white"><div class="card-body"><h5>监控节点</h5><h3><?= intval($stats['total_monitors']) ?></h3><small>在线: <?= intval($stats['online_monitors']) ?></small></div></div></div>
-            <div class="col-md-3"><div class="card stat-card bg-warning text-white"><div class="card-body"><h5>今日告警</h5><h3><?= intval($stats['today_alerts']) ?></h3></div></div></div>
-            <div class="col-md-3"><div class="card stat-card bg-info text-white"><div class="card-body"><h5>平均响应</h5><h3><?= intval($stats['avg_response']) ?>ms</h3></div></div></div>
+            <div class="col-md-3"><div class="card stat-card bg-primary text-white"><div class="card-body"><h5>Emby服务器</h5><h3><?= $stats['total_servers'] ?></h3><small>在线: <?= $stats['online_servers'] ?></small></div></div></div>
+            <div class="col-md-3"><div class="card stat-card bg-success text-white"><div class="card-body"><h5>监控节点</h5><h3><?= $stats['total_monitors'] ?></h3><small>在线: <?= $stats['online_monitors'] ?></small></div></div></div>
+            <div class="col-md-3"><div class="card stat-card bg-warning text-white"><div class="card-body"><h5>今日告警</h5><h3><?= $stats['today_alerts'] ?></h3></div></div></div>
+            <div class="col-md-3"><div class="card stat-card bg-info text-white"><div class="card-body"><h5>平均响应</h5><h3><?= $stats['avg_response'] ?>ms</h3></div></div></div>
         </div>
         <div class="row mb-4">
             <?php foreach($serverStatus as $s): $c = $s['item_counts'] ? json_decode($s['item_counts'], true) : []; ?>
             <div class="col-md-6 col-lg-4 mb-3"><div class="server-card p-3">
                 <div class="d-flex justify-content-between">
                     <div class="d-flex gap-3">
-                        <div class="server-icon">
-                            <?php if(!empty($s['icon_url'])): ?>
-                                <img src="<?= htmlspecialchars($s['icon_url'], ENT_QUOTES, 'UTF-8') ?>" onerror="this.style.display='none';">
-                            <?php else: ?>
-                                <i class="bi bi-hdd-stack"></i>
-                            <?php endif; ?>
-                        </div>
-                        <div><h5><?= htmlspecialchars($s['name'], ENT_QUOTES, 'UTF-8') ?></h5><?php if($s['is_public']): ?><span class="public-badge"><i class="bi bi-eye"></i> 公开</span><?php endif; ?></div>
+                        <div class="server-icon"><?= !empty($s['icon_url']) ? '<img src="'.htmlspecialchars($s['icon_url']).'" onerror="this.innerHTML=\'<i class=bi-hdd-stack></i>\'">' : '<i class="bi bi-hdd-stack"></i>' ?></div>
+                        <div><h5><?= htmlspecialchars($s['name']) ?></h5><?php if($s['is_public']): ?><span class="public-badge"><i class="bi bi-eye"></i> 公开</span><?php endif; ?></div>
                     </div>
                     <div><?= isset($s['is_online']) ? '<span class="badge bg-'.($s['is_online']?'success':'danger').'">'.($s['is_online']?'在线':'离线').'</span>' : '<span class="badge bg-secondary">未知</span>' ?></div>
                 </div>
                 <hr>
                 <div class="row text-center">
-                    <div class="col-3"><small class="text-muted">响应</small><h6><?= isset($s['response_time']) ? intval($s['response_time']) : '-' ?>ms</h6></div>
-                    <div class="col-3"><small class="text-muted">电影</small><h6><?= formatNumber($c['MovieCount'] ?? 0) ?></h6></div>
-                    <div class="col-3"><small class="text-muted">剧集</small><h6><?= formatNumber($c['SeriesCount'] ?? 0) ?></h6></div>
-                    <div class="col-3"><small class="text-muted">单集</small><h6><?= formatNumber($c['EpisodeCount'] ?? 0) ?></h6></div>
+                    <div class="col-3"><small class="text-muted">响应</small><h6><?= $s['response_time']??'-' ?>ms</h6></div>
+                    <div class="col-3"><small class="text-muted">电影</small><h6><?= formatNumber($c['MovieCount']??0) ?></h6></div>
+                    <div class="col-3"><small class="text-muted">剧集</small><h6><?= formatNumber($c['SeriesCount']??0) ?></h6></div>
+                    <div class="col-3"><small class="text-muted">单集</small><h6><?= formatNumber($c['EpisodeCount']??0) ?></h6></div>
                 </div>
             </div></div>
             <?php endforeach; ?>
@@ -105,7 +88,7 @@ $recentData = $db->query("
         <div class="card"><div class="card-header d-flex justify-content-between"><h5 class="mb-0">最近监控记录</h5><a href="history.php" class="btn btn-sm btn-outline-primary">查看更多</a></div>
         <div class="card-body p-0"><table class="table table-hover mb-0"><thead><tr><th>时间</th><th>服务器</th><th>监控节点</th><th>状态</th><th>响应</th></tr></thead><tbody>
             <?php foreach($recentData as $d): ?>
-            <tr><td><?= date('H:i:s',strtotime($d['created_at'])) ?></td><td><?= htmlspecialchars($d['server_name'], ENT_QUOTES, 'UTF-8') ?></td><td><?= htmlspecialchars($d['monitor_name'], ENT_QUOTES, 'UTF-8') ?></td><td><span class="status-badge <?= $d['is_online']?'status-online':'status-offline' ?>"></span><?= $d['is_online']?'在线':'离线' ?></td><td><?= $d['response_time'] ? intval($d['response_time']).'ms' : '-' ?></td></tr>
+            <tr><td><?= date('H:i:s',strtotime($d['created_at'])) ?></td><td><?= htmlspecialchars($d['server_name']) ?></td><td><?= htmlspecialchars($d['monitor_name']) ?></td><td><span class="status-badge <?= $d['is_online']?'status-online':'status-offline' ?>"></span><?= $d['is_online']?'在线':'离线' ?></td><td><?= $d['response_time']?$d['response_time'].'ms':'-' ?></td></tr>
             <?php endforeach; ?>
         </tbody></table></div></div>
     </main>

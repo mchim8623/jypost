@@ -44,40 +44,8 @@ $current_time = date('Y-m-d H:i:s');
     <style>
         :root{--le:#10b981;--lg:#34d399;--ln:#fbbf24;--ls:#f97316;--lv:#ef4444;--lu:#9ca3af}
         body{background:linear-gradient(135deg,#667eea,#764ba2);min-height:100vh;padding:20px 0}
-        .container{max-width:1400px}
-        .header{background:#fff;border-radius:20px;padding:30px;margin-bottom:30px;box-shadow:0 10px 40px rgba(0,0,0,.1)}
-        .header h1{margin:0;color:#333}.header h1 i{color:#667eea}
-        .stats-bar{display:flex;gap:30px;margin-top:20px;flex-wrap:wrap}
-        .stat-item{display:flex;align-items:center;gap:10px}.stat-value{font-size:28px;font-weight:700}.stat-label{color:#666}
-        .server-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:20px}
-        .server-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);transition:all .3s;border:1px solid rgba(0,0,0,.05)}
-        .server-card:hover{transform:translateY(-4px);box-shadow:0 12px 30px rgba(0,0,0,.15)}
-        .server-header{padding:20px;display:flex;align-items:center;gap:15px;border-bottom:1px solid #f0f0f0}
-        .server-icon{width:55px;height:55px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:28px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;flex-shrink:0;overflow:hidden}
-        .server-icon img{width:100%;height:100%;object-fit:cover}
-        .server-info{flex:1;min-width:0}.server-name{font-size:18px;font-weight:600;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .server-status{display:flex;align-items:center;gap:8px;margin-top:5px}
-        .status-indicator{width:10px;height:10px;border-radius:50%;animation:pulse 2s infinite}
-        .status-online{background:#10b981;box-shadow:0 0 10px rgba(16,185,129,.5)}.status-offline{background:#ef4444}.status-unknown{background:#9ca3af}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
-        .server-body{padding:20px}.metric-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5}.metric-row:last-child{border-bottom:none}
-        .metric-label{color:#666;font-size:14px;display:flex;align-items:center;gap:5px}.metric-value{font-weight:600;font-size:16px}
-        .le{color:var(--le)}.lg{color:var(--lg)}.ln{color:var(--ln)}.ls{color:var(--ls)}.lv{color:var(--lv)}.lu{color:var(--lu)}
-        .latency-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:500}
-        .latency-badge.le{background:rgba(16,185,129,.15)}.latency-badge.lg{background:rgba(52,211,153,.15)}.latency-badge.ln{background:rgba(251,191,36,.15)}.latency-badge.ls{background:rgba(249,115,22,.15)}.latency-badge.lv{background:rgba(239,68,68,.15)}.latency-badge.lu{background:rgba(156,163,175,.15)}
-        .uptime-bar{height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin-top:5px}.uptime-fill{height:100%;background:linear-gradient(90deg,#10b981,#34d399);border-radius:3px;transition:width .3s}
-        .media-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:15px;padding:12px;background:#f8f9fa;border-radius:10px}
-        .media-stat-item{display:flex;align-items:center;gap:8px}.media-stat-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px}
-        .media-stat-icon.movie{background:#3b82f6;color:#fff}.media-stat-icon.series{background:#8b5cf6;color:#fff}.media-stat-icon.episode{background:#ec4899;color:#fff}.media-stat-icon.music{background:#10b981;color:#fff}
-        .media-stat-content{flex:1;display:flex;justify-content:space-between;align-items:center}.media-stat-label{font-size:12px;color:#666}.media-stat-value{font-weight:600;font-size:14px;color:#333;display:flex;align-items:center;gap:5px}
-        .trend-up{color:#10b981;font-size:11px}.trend-down{color:#ef4444;font-size:11px}.trend-flat{color:#9ca3af;font-size:11px}
-        .trend-section{margin-top:12px;padding-top:12px;border-top:1px dashed #e5e7eb}.trend-title{font-size:12px;color:#999;margin-bottom:8px}.trend-grid{display:flex;justify-content:space-around}.trend-item{text-align:center}.trend-item .label{font-size:11px;color:#999}.trend-item .value{font-size:14px;font-weight:600}
-        .server-footer{padding:15px 20px;background:#fafafa;font-size:12px;color:#999;display:flex;justify-content:space-between}
-        .footer{text-align:center;margin-top:40px;color:rgba(255,255,255,.8)}.footer a{color:#fff;text-decoration:none}
-        .refresh-btn{position:fixed;bottom:30px;right:30px;width:50px;height:50px;border-radius:25px;background:#fff;border:none;box-shadow:0 4px 20px rgba(0,0,0,.2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;color:#667eea;transition:all .3s}.refresh-btn:hover{transform:rotate(180deg)}
-        .empty-state{background:#fff;border-radius:20px;padding:60px;text-align:center;color:#999}.empty-state i{font-size:60px;color:#ddd;margin-bottom:20px}
-        .admin-link{color:#666;text-decoration:none;font-size:14px}.admin-link:hover{color:#667eea}
-        .status-detail{font-size:11px;color:#999;margin-top:2px}
+        .container{max-width:1400px}.header{background:#fff;border-radius:20px;padding:30px;margin-bottom:30px;box-shadow:0 10px 40px rgba(0,0,0,.1)}
+        .header h1{margin:0;color:#333}.header h1 i{color:#667eea}.stats-bar{display:flex;gap:30px;margin-top:20px;flex-wrap:wrap}.stat-item{display:flex;align-items:center;gap:10px}.stat-value{font-size:28px;font-weight:700}.stat-label{color:#666}.server-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:20px}.server-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);transition:all .3s;border:1px solid rgba(0,0,0,.05)}.server-card:hover{transform:translateY(-4px);box-shadow:0 12px 30px rgba(0,0,0,.15)}.server-header{padding:20px;display:flex;align-items:center;gap:15px;border-bottom:1px solid #f0f0f0}.server-icon{width:55px;height:55px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:28px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;flex-shrink:0;overflow:hidden}.server-icon img{width:100%;height:100%;object-fit:cover}.server-info{flex:1;min-width:0}.server-name{font-size:18px;font-weight:600;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.server-status{display:flex;align-items:center;gap:8px;margin-top:5px}.status-indicator{width:10px;height:10px;border-radius:50%;animation:pulse 2s infinite}.status-online{background:#10b981;box-shadow:0 0 10px rgba(16,185,129,.5)}.status-offline{background:#ef4444}.status-unknown{background:#9ca3af}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}.server-body{padding:20px}.metric-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5}.metric-row:last-child{border-bottom:none}.metric-label{color:#666;font-size:14px;display:flex;align-items:center;gap:5px}.metric-value{font-weight:600;font-size:16px}.le{color:var(--le)}.lg{color:var(--lg)}.ln{color:var(--ln)}.ls{color:var(--ls)}.lv{color:var(--lv)}.lu{color:var(--lu)}.latency-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:500}.latency-badge.le{background:rgba(16,185,129,.15)}.latency-badge.lg{background:rgba(52,211,153,.15)}.latency-badge.ln{background:rgba(251,191,36,.15)}.latency-badge.ls{background:rgba(249,115,22,.15)}.latency-badge.lv{background:rgba(239,68,68,.15)}.latency-badge.lu{background:rgba(156,163,175,.15)}.uptime-bar{height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin-top:5px}.uptime-fill{height:100%;background:linear-gradient(90deg,#10b981,#34d399);border-radius:3px;transition:width .3s}.media-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:15px;padding:12px;background:#f8f9fa;border-radius:10px}.media-stat-item{display:flex;align-items:center;gap:8px}.media-stat-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px}.media-stat-icon.movie{background:#3b82f6;color:#fff}.media-stat-icon.series{background:#8b5cf6;color:#fff}.media-stat-icon.episode{background:#ec4899;color:#fff}.media-stat-icon.music{background:#10b981;color:#fff}.media-stat-content{flex:1;display:flex;justify-content:space-between;align-items:center}.media-stat-label{font-size:12px;color:#666}.media-stat-value{font-weight:600;font-size:14px;color:#333;display:flex;align-items:center;gap:5px}.trend-up{color:#10b981;font-size:11px}.trend-down{color:#ef4444;font-size:11px}.trend-flat{color:#9ca3af;font-size:11px}.trend-section{margin-top:12px;padding-top:12px;border-top:1px dashed #e5e7eb}.trend-title{font-size:12px;color:#999;margin-bottom:8px}.trend-grid{display:flex;justify-content:space-around}.trend-item{text-align:center}.trend-item .label{font-size:11px;color:#999}.trend-item .value{font-size:14px;font-weight:600}.server-footer{padding:15px 20px;background:#fafafa;font-size:12px;color:#999;display:flex;justify-content:space-between}.footer{text-align:center;margin-top:40px;color:rgba(255,255,255,.8)}.footer a{color:#fff;text-decoration:none}.refresh-btn{position:fixed;bottom:30px;right:30px;width:50px;height:50px;border-radius:25px;background:#fff;border:none;box-shadow:0 4px 20px rgba(0,0,0,.2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;color:#667eea;transition:all .3s}.refresh-btn:hover{transform:rotate(180deg)}.empty-state{background:#fff;border-radius:20px;padding:60px;text-align:center;color:#999}.empty-state i{font-size:60px;color:#ddd;margin-bottom:20px}.admin-link{color:#666;text-decoration:none;font-size:14px}.admin-link:hover{color:#667eea}.status-detail{font-size:11px;color:#999;margin-top:2px}
     </style>
 </head>
 <body>
@@ -107,7 +75,13 @@ $current_time = date('Y-m-d H:i:s');
         ?>
         <div class="server-card">
             <div class="server-header">
-                <div class="server-icon"><?= !empty($s['icon_url']) ? '<img src="'.htmlspecialchars($s['icon_url']).'" onerror="this.parentElement.innerHTML=\'<i class=bi-hdd-stack></i>\'">' : '<i class="bi bi-hdd-stack"></i>' ?></div>
+                <div class="server-icon">
+                    <?php if(!empty($s['icon_url'])): ?>
+                        <img src="<?= htmlspecialchars($s['icon_url'], ENT_QUOTES, 'UTF-8') ?>" onerror="this.style.display='none';">
+                    <?php else: ?>
+                        <i class="bi bi-hdd-stack"></i>
+                    <?php endif; ?>
+                </div>
                 <div class="server-info"><div class="server-name"><?= htmlspecialchars($s['name']) ?></div><div class="server-status"><span class="status-indicator <?= $s['is_online']?'status-online':($s['is_online']===null?'status-unknown':'status-offline') ?>"></span><span><?= $s['is_online']===null?'未知':($s['is_online']?'在线':'离线') ?></span></div><?php if($recentCount>0): ?><div class="status-detail">近<?= $recentCount ?>次: <?= $recentOnline ?>次成功</div><?php endif; ?></div>
             </div>
             <div class="server-body">
@@ -119,7 +93,6 @@ $current_time = date('Y-m-d H:i:s');
                     <?php if(($counts['MovieCount']??0)>0): ?><div class="media-stat-item"><div class="media-stat-icon movie"><i class="bi bi-film"></i></div><div class="media-stat-content"><span class="media-stat-label">电影</span><span class="media-stat-value"><?= formatNumber($counts['MovieCount']) ?><?php if($trend['movies']['direction']!=='flat'): ?><span class="trend-<?= $trend['movies']['direction'] ?>"><i class="bi bi-arrow-<?= $trend['movies']['direction'] ?>"></i><?= abs($trend['movies']['change']) ?></span><?php endif; ?></span></div></div><?php endif; ?>
                     <?php if(($counts['SeriesCount']??0)>0): ?><div class="media-stat-item"><div class="media-stat-icon series"><i class="bi bi-tv"></i></div><div class="media-stat-content"><span class="media-stat-label">剧集</span><span class="media-stat-value"><?= formatNumber($counts['SeriesCount']) ?><?php if($trend['series']['direction']!=='flat'): ?><span class="trend-<?= $trend['series']['direction'] ?>"><i class="bi bi-arrow-<?= $trend['series']['direction'] ?>"></i><?= abs($trend['series']['change']) ?></span><?php endif; ?></span></div></div><?php endif; ?>
                     <?php if(($counts['EpisodeCount']??0)>0): ?><div class="media-stat-item"><div class="media-stat-icon episode"><i class="bi bi-collection-play"></i></div><div class="media-stat-content"><span class="media-stat-label">单集</span><span class="media-stat-value"><?= formatNumber($counts['EpisodeCount']) ?><?php if($trend['episodes']['direction']!=='flat'): ?><span class="trend-<?= $trend['episodes']['direction'] ?>"><i class="bi bi-arrow-<?= $trend['episodes']['direction'] ?>"></i><?= abs($trend['episodes']['change']) ?></span><?php endif; ?></span></div></div><?php endif; ?>
-                    <?php if(($counts['SongCount']??0)>0): ?><div class="media-stat-item"><div class="media-stat-icon music"><i class="bi bi-music-note"></i></div><div class="media-stat-content"><span class="media-stat-label">歌曲</span><span class="media-stat-value"><?= formatNumber($counts['SongCount']) ?></span></div></div><?php endif; ?>
                 </div>
                 <?php if($trend['total']['change']!=0): ?>
                 <div class="trend-section"><div class="trend-title"><i class="bi bi-graph-up-arrow"></i> 近期更新趋势</div><div class="trend-grid">
@@ -129,7 +102,7 @@ $current_time = date('Y-m-d H:i:s');
                 </div></div>
                 <?php endif; ?><?php endif; ?>
             </div>
-            <div class="server-footer"><span><i class="bi bi-check-circle"></i> 最后: <?= $s['last_check']?date('H:i:s',strtotime($s['last_check'])):'从未' ?></span><span><i class="bi bi-activity"></i> 平均: <?= round($s['avg_response_24h']??0) ?>ms</span></div>
+            <div class="server-footer"><span><i class="bi bi-check-circle"></i> 最后: <?= $s['last_check']?date('H:i:s',strtotime($s['last_check'])): '从未' ?></span><span><i class="bi bi-activity"></i> 平均: <?= round($s['avg_response_24h']??0) ?>ms</span></div>
         </div>
         <?php endforeach; ?>
     </div>
