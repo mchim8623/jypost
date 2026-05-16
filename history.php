@@ -5,10 +5,23 @@ $db = getDB();
 $site_name = getConfig('site_name') ?: '集邮记';
 $server_id = intval($_GET['server_id'] ?? 0); $monitor_id = intval($_GET['monitor_id'] ?? 0); $date = $_GET['date'] ?? date('Y-m-d'); $page = max(1, intval($_GET['page'] ?? 1));
 $limit = 50; $offset = ($page - 1) * $limit;
+
+// 越权操作二次防御
+if (!isset($_SESSION['user_id']) || intval($_SESSION['user_id']) <= 0) {
+    die('用户会话校验不通过，请重新登录。');
+}
+
 $where = ["1=1"]; $params = [];
 if ($server_id > 0) { $where[] = "md.server_id=?"; $params[] = $server_id; }
 if ($monitor_id > 0) { $where[] = "md.monitor_id=?"; $params[] = $monitor_id; }
-if (!empty($date)) { $where[] = "DATE(md.created_at)=?"; $params[] = $date; }
+
+// 性能优化点：弃用高耗能的 DATE() 函数，改用范围查询，从而精确命中复合时间索引，防止百万数据下全表扫描卡死服务器
+if (!empty($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) { 
+    $where[] = "md.created_at >= ? AND md.created_at <= ?"; 
+    $params[] = $date . ' 00:00:00';
+    $params[] = $date . ' 23:59:59';
+}
+
 $whereSql = implode(' AND ', $where);
 $stmt = $db->prepare("SELECT COUNT(*) FROM monitor_data md WHERE $whereSql"); $stmt->execute($params); $total = $stmt->fetchColumn(); $totalPages = ceil($total / $limit);
 $stmt = $db->prepare("SELECT md.*, es.name as server_name, m.name as monitor_name FROM monitor_data md JOIN emby_servers es ON md.server_id=es.id JOIN monitors m ON md.monitor_id=m.id WHERE $whereSql ORDER BY md.created_at DESC LIMIT $limit OFFSET $offset"); $stmt->execute($params); $records = $stmt->fetchAll();
@@ -21,7 +34,7 @@ if ($server_id > 0 || $monitor_id > 0 || !empty($date)) { $stmt = $db->prepare("
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>历史数据 - <?= htmlspecialchars($site_name) ?> 管理面板</title>
+    <title>历史数据 - <?= htmlspecialchars($site_name, ENT_QUOTES, 'UTF-8') ?> Management</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css">
     <style>.sidebar{min-height:100vh;background:linear-gradient(135deg,#667eea,#764ba2)}.sidebar .nav-link{color:rgba(255,255,255,.8);padding:12px 20px;border-radius:8px;margin:4px 0}.sidebar .nav-link:hover,.sidebar .nav-link.active{color:#fff;background:rgba(255,255,255,.2)}.status-badge{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:5px}.status-online{background:#10b981}.status-offline{background:#ef4444}.stat-card{border-radius:10px;border:none;background:#f8f9fa}</style>
@@ -29,7 +42,7 @@ if ($server_id > 0 || $monitor_id > 0 || !empty($date)) { $stmt = $db->prepare("
 <body>
 <div class="container-fluid"><div class="row">
     <nav class="col-md-2 d-md-block sidebar"><div class="position-sticky pt-4">
-        <h4 class="text-white text-center mb-4"><i class="bi bi-stamp"></i> <?= htmlspecialchars($site_name) ?></h4>
+        <h4 class="text-white text-center mb-4"><i class="bi bi-stamp"></i> <?= htmlspecialchars($site_name, ENT_QUOTES, 'UTF-8') ?></h4>
         <div class="nav flex-column">
             <a class="nav-link" href="index.php"><i class="bi bi-speedometer2"></i> 仪表盘</a>
             <a class="nav-link" href="servers.php"><i class="bi bi-server"></i> 服务器管理</a>
@@ -43,9 +56,9 @@ if ($server_id > 0 || $monitor_id > 0 || !empty($date)) { $stmt = $db->prepare("
     <main class="col-md-10 ms-sm-auto px-md-4 py-4">
         <h2 class="mb-4">历史监控数据</h2>
         <div class="card mb-4"><div class="card-body"><form method="get" class="row g-3">
-            <div class="col-md-3"><label class="form-label">服务器</label><select class="form-select" name="server_id"><option value="">全部</option><?php foreach($servers as $s): ?><option value="<?= $s['id'] ?>" <?= $server_id==$s['id']?'selected':'' ?>><?= htmlspecialchars($s['name']) ?></option><?php endforeach; ?></select></div>
-            <div class="col-md-3"><label class="form-label">监控机</label><select class="form-select" name="monitor_id"><option value="">全部</option><?php foreach($monitors as $m): ?><option value="<?= $m['id'] ?>" <?= $monitor_id==$m['id']?'selected':'' ?>><?= htmlspecialchars($m['name']) ?></option><?php endforeach; ?></select></div>
-            <div class="col-md-3"><label class="form-label">日期</label><input type="date" class="form-control" name="date" value="<?= $date ?>"></div>
+            <div class="col-md-3"><label class="form-label">服务器</label><select class="form-select" name="server_id"><option value="">全部</option><?php foreach($servers as $s): ?><option value="<?= intval($s['id']) ?>" <?= $server_id==$s['id']?'selected':'' ?>><?= htmlspecialchars($s['name'], ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-3"><label class="form-label">监控机</label><select class="form-select" name="monitor_id"><option value="">全部</option><?php foreach($monitors as $m): ?><option value="<?= intval($m['id']) ?>" <?= $monitor_id==$m['id']?'selected':'' ?>><?= htmlspecialchars($m['name'], ENT_QUOTES, 'UTF-8') ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-3"><label class="form-label">日期</label><input type="date" class="form-control" name="date" value="<?= htmlspecialchars($date, ENT_QUOTES, 'UTF-8') ?>"></div>
             <div class="col-md-3 d-flex align-items-end"><button type="submit" class="btn btn-primary w-100"><i class="bi bi-search"></i> 查询</button></div>
         </form></div></div>
         <?php if(!empty($stats)): ?>
@@ -58,10 +71,11 @@ if ($server_id > 0 || $monitor_id > 0 || !empty($date)) { $stmt = $db->prepare("
         <?php endif; ?>
         <div class="card"><div class="card-body p-0"><table class="table table-hover mb-0"><thead><tr><th>时间</th><th>服务器</th><th>监控机</th><th>状态</th><th>响应</th><th>媒体库</th><th>错误</th></tr></thead><tbody>
             <?php foreach($records as $r): ?>
-            <tr><td><?= $r['created_at'] ?></td><td><?= htmlspecialchars($r['server_name']) ?></td><td><?= htmlspecialchars($r['monitor_name']) ?></td><td><span class="status-badge <?= $r['is_online']?'status-online':'status-offline' ?>"></span><?= $r['is_online']?'在线':'离线' ?></td><td class="<?= getLatencyClass($r['response_time']) ?>"><?= $r['response_time']?$r['response_time'].'ms':'-' ?></td><td><?= $r['library_count']??'-' ?></td><td><?= $r['error_message']?'<span class="text-danger">'.htmlspecialchars($r['error_message']).'</span>':'-' ?></td></tr>
+            <tr><td><?= htmlspecialchars($r['created_at'], ENT_QUOTES, 'UTF-8') ?></td><td><?= htmlspecialchars($r['server_name'], ENT_QUOTES, 'UTF-8') ?></td><td><?= htmlspecialchars($r['monitor_name'], ENT_QUOTES, 'UTF-8') ?></td><td><span class="status-badge <?= $r['is_online']?'status-online':'status-offline' ?>"></span><?= $r['is_online']?'在线':'离线' ?></td><td class="<?= getLatencyClass($r['response_time']) ?>"><?= $r['response_time']?intval($r['response_time']).'ms':'-' ?></td><td><?= isset($r['library_count']) ? intval($r['library_count']) : '-' ?></td><td><?= $r['error_message']?'<span class="text-danger">'.htmlspecialchars($r['error_message'], ENT_QUOTES, 'UTF-8').'</span>':'-' ?></td></tr>
             <?php endforeach; ?>
         </tbody></table></div></div>
-        <?php if($totalPages>1): ?><nav class="mt-4"><ul class="pagination justify-content-center"><li class="page-item <?= $page<=1?'disabled':'' ?>"><a class="page-link" href="?<?= http_build_query(array_merge($_GET,['page'=>$page-1])) ?>">上一页</a></li><?php for($i=max(1,$page-2);$i<=min($totalPages,$page+2);$i++): ?><li class="page-item <?= $i==$page?'active':'' ?>"><a class="page-link" href="?<?= http_build_query(array_merge($_GET,['page'=>$i])) ?>"><?= $i ?></a></li><?php endfor; ?><li class="page-item <?= $page>=$totalPages?'disabled':'' ?>"><a class="page-link" href="?<?= http_build_query(array_merge($_GET,['page'=>$page+1])) ?>">下一页</a></li></ul></nav><?php endif; ?>
+        
+        <?php if($totalPages>1): ?><nav class="mt-4"><ul class="pagination justify-content-center"><li class="page-item <?= $page<=1?'disabled':'' ?>"><a class="page-link" href="?<?= htmlspecialchars(http_build_query(array_merge($_GET,['page'=>$page-1])), ENT_QUOTES, 'UTF-8') ?>">上一页</a></li><?php for($i=max(1,$page-2);$i<=min($totalPages,$page+2);$i++): ?><li class="page-item <?= $i==$page?'active':'' ?>"><a class="page-link" href="?<?= htmlspecialchars(http_build_query(array_merge($_GET,['page'=>$i])), ENT_QUOTES, 'UTF-8') ?>"><?= $i ?></a></li><?php endfor; ?><li class="page-item <?= $page>=$totalPages?'disabled':'' ?>"><a class="page-link" href="?<?= htmlspecialchars(http_build_query(array_merge($_GET,['page'=>$page+1])), ENT_QUOTES, 'UTF-8') ?>">下一页</a></li></ul></nav><?php endif; ?>
     </main>
 </div></div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
